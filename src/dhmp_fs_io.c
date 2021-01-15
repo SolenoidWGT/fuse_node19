@@ -89,21 +89,36 @@ void* naive_rewrite_thread(void * arg)
 #endif
 
 
+void cal_time(struct timespec * start, struct timespec *end, const char * commit)
+{
+#ifdef TIME
+    unsigned long long total_write_time = ((end->tv_sec * 1000000000) + end->tv_nsec) -
+            ((start->tv_sec * 1000000000) + start->tv_nsec); 
+    FUSE_INFO_LOG("FUSE %s is %lf ns", commit, (double)(total_write_time));
+#endif
+}
+
+void cal_log_time(struct timespec * start, struct timespec *end, int times)
+{
+#ifdef TIME
+    unsigned long long total_write_time = ((end->tv_sec * 1000000000) + end->tv_nsec) -
+            ((start->tv_sec * 1000000000) + start->tv_nsec); 
+    FUSE_INFO_LOG("FUSE log time is %lf ns\n", times *(double)(total_write_time));
+#endif
+}
+
 // need_change
+//#define DDBUG
 int dhmp_fs_write(const char *path, const char *buf, size_t size,
 		     off_t offset, struct fuse_file_info *fi)
 {
-	// FUSE_INFO_LOG("write Path: %s", path);
+	struct timespec start_test, end_test;
+	struct timespec strat_l3, end_l3;
+    unsigned long long total_write_time = 0, total_fsync_time = 0; 
+#ifdef DDBUG
+	FUSE_INFO_LOG("Write Begin! path %s, APP set write size is : %d,  now file offset is %d, wirte count is %d", path, size, offset, size/CHUNK_SIZE);
+#endif
 	int res;
-	// char filename[FILE_NAME_LEN];
-	// int len = strlen(path);
-	// strcpy(filename,path);
-	// filename[len] = '/'; 
-	// filename[len+1] = 0;
-
-	// struct inode* head = get_father_inode(filename);
-	// inode* head = search_d_hash(path);
-	
 	inode * head = (inode *)fi->fh;		// 现在可以直接从fi中获取文件的inode
 
 	if(head == NULL || head->isDirectories == 1){
@@ -112,18 +127,28 @@ int dhmp_fs_write(const char *path, const char *buf, size_t size,
 	}
 
 	size_t write_size = 0,	un_write_size = size;
-
+	int write_count = 0;
+	clock_gettime(CLOCK_MONOTONIC, &start_test);
 	while(un_write_size > 0)
 	{
 		off_t chunk_offset = offset;
 		off_t * offset_ptr = &chunk_offset;
 
-		context * cnt =  level3_local_index(offset_ptr, head, 0);
 
-		// FUSE_INFO_LOG("After level3_local_index, chunk offset is %ld, file offset is %ld", chunk_offset, offset);
+		clock_gettime(CLOCK_MONOTONIC, &strat_l3);
+		context * cnt =  level3_local_index(offset_ptr, head, 0);
+		clock_gettime(CLOCK_MONOTONIC, &end_l3);
+		cal_time(&strat_l3, &end_l3, "level chunk time");
+
+
+		#ifdef DDBUG
+		FUSE_INFO_LOG("After level3_local_index, chunk offset is %ld, file offset is %ld", chunk_offset, offset);
+		#endif
+
+		clock_gettime(CLOCK_MONOTONIC, &strat_l3);
 		int bank_id = (cnt->chunk_index * (CHUNK_SIZE)) / (BANK_SIZE);
 		off_t bank_offset = (cnt->chunk_index * (CHUNK_SIZE)) % (BANK_SIZE);
-
+		
 		if(un_write_size >= (CHUNK_SIZE - chunk_offset)){
 
 			if(CHUNK_SIZE - chunk_offset <= 0){
@@ -131,8 +156,10 @@ int dhmp_fs_write(const char *path, const char *buf, size_t size,
 			}
 
 			// 将当前chunk写满
-			// FUSE_INFO_LOG("now index is %d,bank id is %d, wirte size is %lu, bank_offset is %ld", cnt->chunk_index, bank_id, (CHUNK_SIZE - chunk_offset), bank_offset);
-			dhmp_fs_write_to_cache(bank_id, (char*)(buf + write_size), (CHUNK_SIZE - chunk_offset), bank_offset);
+			#ifdef DDBUG
+			FUSE_INFO_LOG("now index is %d,bank id is %d, wirte size is %lu, bank_offset is %ld, b + c = %ld", cnt->chunk_index, bank_id, (CHUNK_SIZE - chunk_offset), bank_offset,bank_offset+chunk_offset);
+			#endif
+			dhmp_fs_write_to_cache(bank_id, (char*)(buf + write_size), (CHUNK_SIZE - chunk_offset), bank_offset+chunk_offset);
 
 			size_t now_write_size =  (size_t)(CHUNK_SIZE - chunk_offset);
 
@@ -141,25 +168,46 @@ int dhmp_fs_write(const char *path, const char *buf, size_t size,
 
 			offset += now_write_size;		// 文件偏移量 += 写入的长度
 
+			pthread_mutex_lock(&head->file_lock);
 			head->size += (size_t)(CHUNK_SIZE - cnt->size);
 			cnt->size = CHUNK_SIZE;
+			pthread_mutex_unlock(&head->file_lock);
 		}
 		else
 		{
 			// 将剩下的未写入数据都写进去
-			// FUSE_INFO_LOG("Final write now index is %d, bank id is %d, wirte size(un_write_size) is %lu, bank_offset is %ld", cnt->chunk_index, bank_id, un_write_size, bank_offset);
-			dhmp_fs_write_to_cache(bank_id, (char*)(buf + write_size) , un_write_size, bank_offset);
+			#ifdef DDBUG
+			FUSE_INFO_LOG("Final write now index is %d, bank id is %d, wirte size(un_write_size) is %lu, bank_offset is %ld, b + c = %ld", cnt->chunk_index, bank_id, un_write_size, bank_offset, bank_offset+chunk_offset);
+			#endif
+			dhmp_fs_write_to_cache(bank_id, (char*)(buf + write_size) , un_write_size, bank_offset+chunk_offset);
 			write_size += un_write_size;
 			size_t end_offset = un_write_size + chunk_offset;
 			if( end_offset > cnt->size )
 			{
-				head->size += (end_offset - cnt->size);
-				cnt->size = end_offset;
+				pthread_mutex_lock(&head->file_lock);
+				if(cnt->size < end_offset){
+					head->size += (end_offset - cnt->size);
+					cnt->size = end_offset;
+				}
+				pthread_mutex_unlock(&head->file_lock);
 			}
 			un_write_size = 0;
 		}
+		clock_gettime(CLOCK_MONOTONIC, &end_l3);
+		cal_time(&strat_l3, &end_l3, "write chunk time");
+		write_count++;
 	}
-	// FUSE_INFO_LOG("write sucess!, Now filse size is: %d", head->size);
+	clock_gettime(CLOCK_MONOTONIC, &end_test);
+	cal_time(&start_test, &end_test, "write total time");
+
+
+	clock_gettime(CLOCK_MONOTONIC, &start_test);
+#ifdef DDBUG
+	FUSE_INFO_LOG("write sucess!, Now filse size is: %d, Now offser is %ld, wirte count is %d\n", head->size, offset + write_size, write_count);
+#endif
+	clock_gettime(CLOCK_MONOTONIC, &end_test);
+	cal_log_time(&start_test, &end_test, (write_count-1)*2 + 2);
+
 	return size;
 }
 
@@ -167,21 +215,12 @@ int dhmp_fs_read(const char *path, char *buf, size_t size, off_t offset,
 		    struct fuse_file_info *fi)
 {
 	struct timespec start_test, end_test;
+	struct timespec strat_l3, end_l3;
     unsigned long long total_write_time = 0, total_fsync_time = 0; 
+#ifdef DDBUG
+	FUSE_INFO_LOG("READ Begin! path %s, APP set read size is : %d,  now file offset is %d, loop count is %d", path, size, offset, size/CHUNK_SIZE);
+#endif
 	
-	// FUSE_INFO_LOG("Read Path: %s", path);
-	// clock_gettime(CLOCK_MONOTONIC, &start_test);
-
-	// char *bbuf = malloc(size);
-
-	// char filename[FILE_NAME_LEN];
-	// int len = strlen(path);
-	// strcpy(filename,path);
-	// filename[len] = '/';
-	//  filename[len+1] = 0;
-
-	// struct inode* head = get_father_inode(filename);
-	// inode* head = search_d_hash(path);
 
 	inode * head = (inode *)fi->fh;		// 现在可以直接从fi中获取文件的inode
 
@@ -190,28 +229,29 @@ int dhmp_fs_read(const char *path, char *buf, size_t size, off_t offset,
 		FUSE_ERROR_LOG("ERROR ! read a dirtory!,  return = -1");
 		return -1; // 如果filename不存在或者是目录返回-1
 	}
-
-	// clock_gettime(CLOCK_MONOTONIC, &end_test);
-    // total_write_time = ((end_test.tv_sec * 1000000000) + end_test.tv_nsec) -
-    //         ((start_test.tv_sec * 1000000000) + start_test.tv_nsec); 
-    // //FUSE_INFO_LOG("FUSE read1 time is %lf us", (double)(total_write_time/1000));
-
-	// clock_gettime(CLOCK_MONOTONIC, &start_test);
-
 	
 	size_t read_size = 0,	un_read_size = size;   // read_size已经读了的长度，un_read_size还未读的长度
 	int read_count = 0;
+	clock_gettime(CLOCK_MONOTONIC, &start_test);
 	while(un_read_size > 0)
 	{
 		// FUSE_INFO_LOG("read_size=%lu, un_read_size=%lu", read_size, un_read_size);
 		off_t chunk_offset = offset;
 		off_t * offset_ptr = &chunk_offset;
+
+		clock_gettime(CLOCK_MONOTONIC, &strat_l3);
 		context * cnt =  level3_local_index(offset_ptr, head, 1);
+		clock_gettime(CLOCK_MONOTONIC, &end_l3);
+		cal_time(&strat_l3, &end_l3, "lev3 chunk time");
+
+		clock_gettime(CLOCK_MONOTONIC, &strat_l3);
 		if(cnt == NULL){
-			// FUSE_INFO_LOG("cnt == NULL, Break!");
+			FUSE_INFO_LOG("cnt == NULL, Break!");
 			break;
 		}
-		// FUSE_INFO_LOG("After level3_local_index, cnt->size  %lu,  chunk offset is %ld,  file offset is %ld", cnt->size, chunk_offset, offset);
+		#ifdef DDBUG
+		FUSE_INFO_LOG("After level3_local_index, cnt->size  %lu,  chunk offset is %ld,  file offset is %ld, un_read_size is %lu", cnt->size, chunk_offset, offset, un_read_size);
+		#endif
 		int bank_id = (cnt->chunk_index * (CHUNK_SIZE)) / (BANK_SIZE);
 		off_t bank_offset = (cnt->chunk_index * (CHUNK_SIZE)) % (BANK_SIZE);
 		if(un_read_size >= (cnt->size - chunk_offset)){    // 如果需要读的长度超过起始chunk偏移量之后到chunk结束剩下的长度
@@ -223,46 +263,44 @@ int dhmp_fs_read(const char *path, char *buf, size_t size, off_t offset,
 
 			size_t now_read_size = (size_t)(cnt->size  - chunk_offset);
 			if(now_read_size == 0){
-				// FUSE_INFO_LOG("Now_read_Size == 0, break;");
+				#ifdef DDBUG
+				FUSE_INFO_LOG("Now_read_Size == 0, break;");
+				#endif
 				break;
 			}
-			// FUSE_INFO_LOG("now index is %d,   bank id is %d,  now_read_size is %lu,  bank_offset is %ld", cnt->chunk_index, bank_id, now_read_size, bank_offset);
-
-			dhmp_fs_read_from_cache(bank_id, (char*)(buf + read_size), now_read_size, bank_offset);
+			#ifdef DDBUG
+			FUSE_INFO_LOG("now index is %d,   bank id is %d,  now_read_size is %lu,  bank_offset is %ld, b + c = %ld", cnt->chunk_index, bank_id, now_read_size, bank_offset, bank_offset+chunk_offset);
+			#endif
+			dhmp_fs_read_from_cache(bank_id, (char*)(buf + read_size), now_read_size, bank_offset+chunk_offset);
 
 			read_size += now_read_size;
 			un_read_size -= now_read_size;
 			offset += now_read_size;		// 文件偏移量 += 读入的长度
-
-			read_count++;
 		}
 		else
 		{   // 把剩下的都读出来
-			// FUSE_INFO_LOG("Final Read: now index is %d,bank id is %d, read size(un_read_size) is %lu, bank_offset is %ld", cnt->chunk_index, bank_id, un_read_size, bank_offset);
-			dhmp_fs_read_from_cache(bank_id , (char*)(buf + read_size) , un_read_size, bank_offset);
+			#ifdef DDBUG
+			FUSE_INFO_LOG("Final Read: now index is %d,bank id is %d, read size(un_read_size) is %lu, bank_offset is %ld, b + c = %ld", cnt->chunk_index, bank_id, un_read_size, bank_offset+chunk_offset);
+			#endif
+			dhmp_fs_read_from_cache(bank_id , (char*)(buf + read_size) , un_read_size, bank_offset+chunk_offset);
 			read_size += un_read_size;
 			un_read_size = 0;
-			read_count++;
+			
 		}
+		clock_gettime(CLOCK_MONOTONIC, &end_l3);
+		cal_time(&strat_l3, &end_l3, "read chunk time");
+		read_count++;
 	}
+	clock_gettime(CLOCK_MONOTONIC, &end_test);
+	cal_time(&start_test, &end_test, "read total time");
 
-	// clock_gettime(CLOCK_MONOTONIC, &end_test);
-
-    // total_write_time = ((end_test.tv_sec * 1000000000) + end_test.tv_nsec) -
-    //         ((start_test.tv_sec * 1000000000) + start_test.tv_nsec); 
-	
-	// clock_gettime(CLOCK_MONOTONIC, &start_test);
-    // //FUSE_INFO_LOG("FUSE read time2 is %lf us, read_count is %d", (double)(total_write_time/1000), read_count);
-
-	// clock_gettime(CLOCK_MONOTONIC, &end_test);
-    // total_write_time = ((end_test.tv_sec * 1000000000) + end_test.tv_nsec) -
-    //         ((start_test.tv_sec * 1000000000) + start_test.tv_nsec); 
-	// //FUSE_INFO_LOG("FUSE log time is %lf us", (double)(total_write_time/1000));
-
-	// FUSE_INFO_LOG("READ DONE! APP set read size is : %d,  now file offset is %d, actulay read size is %d\n", size, offset, read_size);
-	// bbuf[read_size] = 0;
-	// memcpy(buf,bbuf,read_size);
-	// free(bbuf);
+	clock_gettime(CLOCK_MONOTONIC, &start_test);
+#ifdef DDBUG
+	FUSE_INFO_LOG("READ DONE! APP set read size is : %d,  now file offset is %d, actulay read size is %d, loop count is %d\n", size, offset + read_size, read_size, read_count);
+#endif
+	clock_gettime(CLOCK_MONOTONIC, &end_test);
+	cal_log_time(&start_test, &end_test, (read_count-1)*2 + 2);
+	// buf[read_size] = 0;
 	return read_size;
 }
 

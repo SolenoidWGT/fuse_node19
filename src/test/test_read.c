@@ -43,7 +43,7 @@ int main(int argc, char **argv) {
 
 
 
-    fp= open("/home/gtwang/FUSE/temp2/fuse_test_10M.txt", O_APPEND| O_RDWR|O_CREAT, S_IRWXU);
+    fp= open("/home/gtwang/FUSE/temp/fuse_test_20M.txt", O_APPEND| O_RDWR|O_CREAT, S_IRWXU);
     if(fp ==-1 ){
         printf("Open file fail! %s\n", strerror(errno));
     }
@@ -52,15 +52,16 @@ int main(int argc, char **argv) {
 
     // 测试read时间
     clock_gettime(CLOCK_MONOTONIC, &start_test);
-    for(i=0; i<52; i++){
+    //for(i=0; i<52; i++){
         re =  read(fp, test_file , BANK_SIZE);
         if(re == -1){
             printf("write file fail %s!\n", strerror(errno));
             free(test_file);
-            break;
+            // break;
         }
          n += re;
-    }
+    //}
+
     clock_gettime(CLOCK_MONOTONIC, &end_test);
     total_write_time = ((end_test.tv_sec * 1000000000) + end_test.tv_nsec) -
             ((start_test.tv_sec * 1000000000) + start_test.tv_nsec); 

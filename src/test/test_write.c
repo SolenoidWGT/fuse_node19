@@ -21,7 +21,7 @@ char * str[TEST_TYPE] = {str_64, str_256, str_2k, str_8k, str_32k, str_128k};
 int size_array[TEST_TYPE] = {64, 256, 1024*2, 1024*8, 1024*32, 1024*128};
 int n;
 int fp;
-#define BANK_SIZE (1024*1024*20+12345)          // BANK大小，20M
+#define BANK_SIZE (1024*1024*20)          // BANK大小，20M
 /*
     warning: implicit declaration of function ‘clock_gettime’ [-Wimplicit-function-declaration]
          clock_gettime(CLOCK_MONOTONIC, &start_test);
@@ -45,7 +45,7 @@ int main(int argc, char **argv) {
     
 
 
-    if((fp= open("/home/gtwang/FUSE/fuse_test_10M.txt", O_APPEND| O_RDWR|O_CREAT, S_IRWXU)) ==-1 ){
+    if((fp= open("/home/gtwang/FUSE/fuse_test_20M.txt", O_APPEND| O_RDWR|O_CREAT, S_IRWXU)) ==-1 ){
         printf("Open file fail! %s\n", strerror(errno));
     }
 

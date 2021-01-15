@@ -1,1 +1,0 @@
-/usr/bin/cc -msse2 CMakeFiles/rtest.dir/test_read.c.o -o ../../rtest 

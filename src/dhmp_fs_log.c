@@ -17,6 +17,8 @@ const char *const fuse_level_str[]=
 
 void FUSE_dhmp_log_impl(const char * file, unsigned line, const char * func, unsigned log_level, const char * fmt, ...)
 {
+	
+#ifdef DEBUG
 	va_list args;
 	char mbuf[2048];
 	
@@ -30,7 +32,6 @@ void FUSE_dhmp_log_impl(const char * file, unsigned line, const char * func, uns
 	time_t tt_now;
 
 
-#ifdef DEBUG
 	/*get the args,fill in the string*/
 	va_start(args,fmt);
 	mlength=vsnprintf(mbuf,sizeof(mbuf),fmt,args);

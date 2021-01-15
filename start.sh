@@ -4,13 +4,29 @@
 # ./bin/fuse_naive ./temp2 -o noforget;
 # ./bin/fuse_naive ./temp
 
+# mogodb拷贝
+# cp -rf mongodb/db temp/;
 
+# spark拷贝任务
 start_time=$(date +%s);
 cp -rf ../spark ./temp/;
 end_time=$(date +%s);
 cost_time=$[ $end_time-$start_time ];
 echo "NEW FUse time is $(($cost_time/60))min $(($cost_time%60))s";
 
+# # 写任务
+# start_time=$(date +%s);
+# cp -rf ./fuse_test_20M.txt ./temp/;
+# end_time=$(date +%s);
+# cost_time=$[ $end_time-$start_time ];
+# echo "NEW FUse time is $(($cost_time/60))min $(($cost_time%60))s";
+
+# # 读任务
+# start_time=$(date +%s);
+# ./bin/rtest
+# end_time=$(date +%s);
+# cost_time=$[ $end_time-$start_time ];
+# echo "NEW FUse time is $(($cost_time/60))min $(($cost_time%60))s";
 
 # start_time=$(date +%s);
 # cp -rf ../spark ./temp2/;
@@ -28,7 +44,7 @@ echo "NEW FUse time is $(($cost_time/60))min $(($cost_time%60))s";
 
 
 # rm -rf ./spark;
-# cp -rf mongodb/db temp/
+
 
 
 

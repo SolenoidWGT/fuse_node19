@@ -33,7 +33,7 @@
 
 
 // #define DHMP_ON 1
-#define SSD_TEST 1
+// #define SSD_TEST 1
 
 
 #include "../include/list.h"
@@ -51,7 +51,7 @@
 //#define BANK_SIZE (1024*1024*4)                     // BANK大小，4M
 #define BANK_SIZE ((uint64_t)1024*1024*4)          // BANK大小，4M
 #define BANK_NUM (TOTOL_SIZE/BANK_SIZE)             // dhmp_malloc的数量
-#define CHUNK_SIZE ((uint64_t)1024*4)                        // 单个数据块的大小，16M
+#define CHUNK_SIZE ((uint64_t)1024*1024*4)                        // 单个数据块的大小，16M
 #define CHUNK_NUM (TOTOL_SIZE/CHUNK_SIZE)           // 数据块的总数
 
 #define FILE_NAME_LEN 512

@@ -1,1 +1,0 @@
-/usr/bin/cc -msse2 CMakeFiles/fuse_naive.dir/fuse_back.c.o -o ../../fuse_naive  -lfuse3 -lxml2 -lpthread -lrdmacm -libverbs -lnuma -lrt -lm -ljson-c -lfuse3 -lxml2 -lpthread -lrdmacm -libverbs -lnuma -lrt -lm -ljson-c 

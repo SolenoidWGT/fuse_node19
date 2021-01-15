@@ -79,14 +79,14 @@ int dhmpCreateDirectory(const char * path)
 	add_to_father(father, now);
 	father->d_hash->put(father->d_hash, now->filename, now);		// 同时将其加入到父亲的d_hash中
 	pthread_mutex_unlock(&father->file_lock);
-	// FUSE_INFO_LOG("dhmpCreateDirectory add: %s to father: %s", now->filename, father->filename);
+//FUSE_INFO_LOG("dhmpCreateDirectory add: %s to father: %s", now->filename, father->filename);
 	return 1;
 }
 
 // change
 int dhmpMknod(const char * path)
 {
-	// FUSE_INFO_LOG("In dhmpMknod, path is %s", path);
+//FUSE_INFO_LOG("In dhmpMknod, path is %s", path);
 	struct attr attr;
 	if(strlen(path) == 1) return 0;
 	char filename[FILE_NAME_LEN],	dirname[FILE_NAME_LEN];
@@ -119,23 +119,20 @@ int dhmpMknod(const char * path)
 
 	pthread_mutex_unlock(&father->file_lock);
 
-	// FUSE_INFO_LOG("dhmpMknod add: %s to father: %s", now->filename, father->filename);
+//FUSE_INFO_LOG("dhmpMknod add: %s to father: %s", now->filename, father->filename);
 	return 1;
 }
 
 inode * search_d_hash(const char * path)
 {
-	// FUSE_INFO_LOG("Now path is %s", path);
+	
 	char name[FILE_NAME_LEN];
+	memset(name, 0, FILE_NAME_LEN);
 	// inode * next_inode = (inode *)now_dnode->d_hash->get(now_dnode->d_hash, name);
 	inode * now_node = root;
 	int i = 0, len = strlen(path);
+//FUSE_INFO_LOG("	Search_d_hash Now path is %s, len is %d", path, len);
 	int j =0;
-	// if(path[len-1] != '/'){
-	// 	path[len] = '/';  
-	// 	path[len+1] = 0;  
-	// 	len++;
-	// }
 	// 跳过根目录
 	if(len == 1){
 		return now_node;
@@ -153,10 +150,10 @@ inode * search_d_hash(const char * path)
 			{
 				name[j+1] = 0;
 			}
-			// FUSE_INFO_LOG("Now search_d_hash is %s", name);
+		//FUSE_INFO_LOG("		Now search_d_hash is %s", name);
 			inode * next_inode = (inode *) now_node->d_hash->get(now_node->d_hash, name);
 			if(next_inode == NULL){
-				// FUSE_INFO_LOG("Not Found %s, return!", name);
+			//FUSE_INFO_LOG("	Not Found %s, return!", name);
 				return NULL;
 			} // cd /home/gtwang/FUSE/
 			now_node = next_inode;
@@ -165,7 +162,7 @@ inode * search_d_hash(const char * path)
 		}
 		j++;
 	}
-	// FUSE_INFO_LOG("Found %s, OK!", name);
+//FUSE_INFO_LOG("	search_d_hash Found %s, OK!", name);
 	return now_node;
 }
 
@@ -173,16 +170,16 @@ inode * search_d_hash(const char * path)
 // head是father，filename是被删除的文件
 int dhmpDelFromInode(struct inode *father,char * filename)
 {
-	//FUSE_INFO_LOG("In dhmpDelFromInode, father is %s, filename is %s", father->filename, filename);
+//FUSE_INFO_LOG("	In dhmpDelFromInode, father is %s, filename is %s", father->filename, filename);
 	if(father == NULL || father->isDirectories == 0) {
 		// 父目录下没有文件
-		// FUSE_INFO_LOG("In dhmpDelFromInode, father not a dirct ot is empty!");
+	//FUSE_INFO_LOG("	In dhmpDelFromInode, father not a dirct ot is empty!");
 		return -1;
 	}
 	// 获得被删除的inode
 	inode * to_del = father->d_hash->get(father->d_hash, filename);
 	if(to_del == NULL){
-		FUSE_ERROR_LOG("In dhmpDelFromInode, father remove %s is NULL!", filename);
+		FUSE_ERROR_LOG("	In dhmpDelFromInode, father remove %s is NULL!", filename);
 		return -1;
 	}
 
@@ -196,7 +193,7 @@ int dhmpDelFromInode(struct inode *father,char * filename)
 
 	// 把被删除的inode从他的父目录的dhash中删除
 	if(father->d_hash->remove(father->d_hash, filename) == NULL){
-		FUSE_ERROR_LOG("In dhmpDelFromInode, father remove %s is NULL!", filename);
+		FUSE_ERROR_LOG("	In dhmpDelFromInode, father remove %s is NULL!", filename);
 		return -1;
 	}
 
@@ -210,7 +207,7 @@ int dhmpDelFromInode(struct inode *father,char * filename)
 	// 归还自身的inode结构体
 	reset_indoe(to_del);
 
-	//FUSE_INFO_LOG("dhmpDelFromInode sucess!");
+//FUSE_INFO_LOG("	dhmpDelFromInode sucess!");
 	return 1;
 }
 
@@ -247,24 +244,20 @@ void dhmpDeleteALL(inode *father)
 int dhmpDelete(const char *path)
 {
 	// 不能删除根目录？
+//FUSE_INFO_LOG("DhmpDelete, path is %s", path);
 	if(strlen(path) == 1)
 		return 0;
 	char filename[FILE_NAME_LEN],	dirname[FILE_NAME_LEN];
 	deal(path,	dirname,  filename);
-
-	return dhmpDelFromInode( search_d_hash(dirname), filename);
+	inode * father = search_d_hash(dirname);
+	return dhmpDelFromInode(father , filename);
 }
 
 
 // 根据路径名获得文件属性
 int dhmpGetAttr(const char *path,struct attr *attr)
 {
-	// char filename[FILE_NAME_LEN];
-	// int len = strlen(path);
-	// strcpy(filename, path);
-	// filename[len] = '/'; 
-    // filename[len+1] = 0;
-	// struct inode* head = get_father_inode(filename);        // 根据文件名获得对应的inode
+//FUSE_INFO_LOG("DhmpGetAttr path is : %s",path);
 	inode * head = search_d_hash(path);
 	if(head == NULL){
 		return -1;
@@ -272,14 +265,14 @@ int dhmpGetAttr(const char *path,struct attr *attr)
 	attr->isDirectories = head->isDirectories;
 	attr->size = head->size;
 	attr->timeLastModified = head->timeLastModified;
-	// FUSE_INFO_LOG("In dhmpGetAttr name: %s, head name is %s, size:%lu", filename, head->filename, attr->size);
+	
 	return 0;
 }
 
 // 作用：将一个文件夹下的所有文件返回
 inode_list * dhmpReadDir(const char *path)
 {
-	// FUSE_INFO_LOG("dhmpReadDir %s begin!", path);
+//FUSE_INFO_LOG("dhmpReadDir %s!", path);
 	// char filename[FILE_NAME_LEN];
 	int len = strlen(path);
 	inode* father;
@@ -423,7 +416,7 @@ void deal(const char *path,char * dirname,char * filename)
  int dhmp_fs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 		       off_t offset, struct fuse_file_info *fi,enum fuse_readdir_flags flag)
 {
-	// FUSE_INFO_LOG("In dhmp_fs_readdir, path is %s", path);
+//FUSE_INFO_LOG("In dhmp_fs_readdir, path is %s", path);
 	uint32_t i;
 	struct stat st;
 	inode_list * tmp = dhmpReadDir(path); // 返回该路径下的所有文件，其以inode_list的链表形式返回，inode_list仅仅包含了文件名和是否是文件夹的信息
@@ -445,7 +438,7 @@ void deal(const char *path,char * dirname,char * filename)
 		free(tp);
 	}
 	// free(tmp);
-	// FUSE_INFO_LOG("dhmp_fs_readdir over!");
+//FUSE_INFO_LOG("dhmp_fs_readdir over!");
 	return 0;
 }
 
@@ -454,7 +447,7 @@ void deal(const char *path,char * dirname,char * filename)
  int dhmp_fs_mknod(const char *path, mode_t mode, dev_t rdev)
 {
 	int res;
-	//FUSE_INFO_LOG("In dhmp_fs_mknod, path is %s, mode is %u", path, mode);
+	// FUSE_INFO_LOG("In dhmp_fs_mknod, path is %s, mode is %u", path, mode);
 	res = dhmpMknod(path);
 	if(res < 0)
 		return -1;  // 创建失败
@@ -464,7 +457,7 @@ void deal(const char *path,char * dirname,char * filename)
 
  int dhmp_fs_mkdir(const char *path, mode_t mode)
 {
-	//FUSE_INFO_LOG("In dhmp_fs_mkdir, path is %s", path);
+//FUSE_INFO_LOG("In dhmp_fs_mkdir, path is %s", path);
 	int res = dhmpCreateDirectory( path);
 	if(res < 0)
 		return -1;
@@ -496,17 +489,30 @@ void deal(const char *path,char * dirname,char * filename)
 
  int dhmp_fs_rename(const char *from, const char *to, unsigned int flags)
 {
-	char filename[FILE_NAME_LEN],dirname[FILE_NAME_LEN],toname[FILE_NAME_LEN];
+	// FUSE_INFO_LOG("IN rename!, form is %s, to is %s", from, to);
+	char filename[FILE_NAME_LEN];
+	char dirname[FILE_NAME_LEN];
+	char toname[FILE_NAME_LEN];
 	// int len = strlen(from);
 	// strcpy(filename,from);
 	// filename[len] = '/'; 
 	// filename[len+1] = 0;
 	// struct inode* head = get_father_inode(filename);
-	inode* head = search_d_hash(from);
+
+
+	deal(from,	dirname,	filename);
+
+	inode* father = search_d_hash(dirname);
+	inode* head = (inode*)father->d_hash->get(father->d_hash, filename);
 	if(head == NULL) 
 		return -17;
-	deal(to,dirname,toname);
+	father->d_hash->remove(father->d_hash, filename);
+	// FUSE_INFO_LOG("Remove %s from fathe %s", filename, father->filename);
+	deal(to,	dirname,	toname);
+	// FUSE_INFO_LOG("Remove!, toname is %s", toname);
 	strcpy(head->filename, toname);
+	father->d_hash->put(father->d_hash, head->filename, head);
+	// FUSE_INFO_LOG("Remove is ok");
 	return 0;
 }
 
@@ -534,8 +540,8 @@ void deal(const char *path,char * dirname,char * filename)
 
  int dhmp_fs_open(const char *path, struct fuse_file_info *fi)
 {
-	//FUSE_INFO_LOG("In dhmp_fs_open, path is %s", path);
-	fi->direct_io = 1;
+//FUSE_INFO_LOG("Dhmp_fs_open, path is %s", path);
+	// fi->direct_io = 1;
 	inode * open_file_inode = search_d_hash(path);
 	if(open_file_inode == NULL){
 		return -1;
