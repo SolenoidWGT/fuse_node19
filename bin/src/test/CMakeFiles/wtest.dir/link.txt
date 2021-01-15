@@ -1,0 +1,1 @@
+/usr/bin/cc -msse2 CMakeFiles/wtest.dir/test_write.c.o -o ../../wtest 

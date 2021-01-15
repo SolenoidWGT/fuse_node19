@@ -1,0 +1,40 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/gtwang/FUSE/src/test/fuse_back.c
+config.h
+-
+fuse.h
+-
+stdio.h
+-
+string.h
+-
+unistd.h
+-
+fcntl.h
+-
+stdlib.h
+-
+sys/stat.h
+-
+dirent.h
+-
+errno.h
+-
+sys/socket.h
+-
+sys/un.h
+-
+sys/time.h
+-
+sys/xattr.h
+-
+./dhmp_client/include/dhmp.h
+/home/gtwang/FUSE/src/test/dhmp_client/include/dhmp.h
+

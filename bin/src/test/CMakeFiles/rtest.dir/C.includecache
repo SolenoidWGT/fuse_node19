@@ -1,0 +1,28 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/gtwang/FUSE/src/test/test_read.c
+sys/types.h
+-
+sys/stat.h
+-
+sys/fcntl.h
+-
+stdio.h
+-
+unistd.h
+-
+sys/time.h
+-
+string.h
+-
+errno.h
+-
+stdlib.h
+-
+
