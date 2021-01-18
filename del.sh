@@ -4,4 +4,5 @@
 
 rm ./dhmp_logs.txt;
 rm ./fuse_logs.txt;
-# rm ./gtwang_fuse_logs.txt;
+rm ./gtwang_fuse_logs.txt;
+rm ./FUSE_SSD.txt

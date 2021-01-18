@@ -32,8 +32,9 @@
 #endif
 
 
-// #define DHMP_ON 1
+#define DHMP_ON 1
 // #define SSD_TEST 1
+// #define CACHE_ON 1
 
 
 #include "../include/list.h"
@@ -47,12 +48,13 @@
 
 
 //#define TOTOL_SIZE ((uint64_t)1024*1024*1024*2)     // 磁盘总空间,2G
-#define TOTOL_SIZE ((uint64_t)1024*1024*1024*10)     // 磁盘总空间,2M
+#define TOTOL_SIZE ((uint64_t)1024*1024*1024*8)     // 磁盘总空间,2M
 //#define BANK_SIZE (1024*1024*4)                     // BANK大小，4M
 #define BANK_SIZE ((uint64_t)1024*1024*4)          // BANK大小，4M
 #define BANK_NUM (TOTOL_SIZE/BANK_SIZE)             // dhmp_malloc的数量
-#define CHUNK_SIZE ((uint64_t)1024*1024*4)                        // 单个数据块的大小，16M
+#define CHUNK_SIZE ((uint64_t)1024*4)           // 单个数据块的大小，16M
 #define CHUNK_NUM (TOTOL_SIZE/CHUNK_SIZE)           // 数据块的总数
+#define CACHE_SIZE_BYTE ((uint64_t)1024*1024*512)	
 
 #define FILE_NAME_LEN 512
 
@@ -175,7 +177,7 @@ struct attr {
 // 全局变量，非线程安全
 #ifdef DHMP_ON
 	#define SSERVERNUM (SERVERNUM+1)
-	#define CACHE_SIZE 100
+	#define CACHE_SIZE (CACHE_SIZE_BYTE / BANK_SIZE)
 
 	
 	typedef struct  rw_task
@@ -228,13 +230,20 @@ struct attr {
 		int bank_id;
 		int backup_servers[3];
 	}bank_info;
+
+
+	typedef struct dhmp_fs_cahce
+	{
+		int bank_id;
+		cache_DRAM * cache_ptr;
+	}dhmp_fs_cahce;
+	
 	
 	
 #endif
 
 extern inode *root;         // 根节点
 extern char bitmap[CHUNK_NUM];
-
 extern context * context_addr[CHUNK_NUM]; 	// 提前为所有的context分配地址,一个context的空间就是一个chunk
 
 #ifdef SSD_TEST
@@ -246,21 +255,16 @@ extern context * context_addr[CHUNK_NUM]; 	// 提前为所有的context分配地
 #endif
 
 
-extern inode *root;         // 根节点
 extern FILE * fp;
 extern char msg[1024];
 extern char msg_tmp[1024];
 extern double read_total_time;
-
 extern pthread_mutex_t context_lock;
 
 
 // inode slab和其对应的锁
 extern inode * free_inode_slab;
 extern pthread_mutex_t inode_slab_lock;
-
-
-
 
 
 
@@ -285,8 +289,9 @@ extern pthread_mutex_t inode_slab_lock;
 	extern int fuse_journal_len;	// 日志缓冲长度
 	extern int use_bank_len;
 	extern rw_task * fuse_journal_list;	// 日志缓冲
-	extern cache_DRAM * cache_head;	// cahce链表
-
+	extern cache_DRAM * cache_head;		// cahce链表
+	// extern HashMap * cache_hash;		// cache散列表
+	extern dhmp_fs_cahce* cache_hash[CACHE_SIZE];
 	extern int all_while_true_thread_kill;		// 当主进程结束的时候设置为true
 #endif
 

@@ -25,6 +25,7 @@ typedef struct entry {
 typedef struct hashMap {
 	int size;			// 总长度
 	int listSize;		// 固定长度
+	int changeSize;		// 是否进行rehash的操作
 	Entry * hash_list;
 	HashCode hashCode;
 	Equal equal;
@@ -35,7 +36,7 @@ typedef struct hashMap {
 	Clear clear;
 }HashMap;
 
-HashMap* createHashMap(HashCode hashCode, Equal equal);
+HashMap* createHashMap(HashCode hashCode, Equal equal, int _listSize);
 
 
 #endif // !__HASHMAP_H__

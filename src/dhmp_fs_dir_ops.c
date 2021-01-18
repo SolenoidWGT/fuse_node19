@@ -71,7 +71,7 @@ int dhmpCreateDirectory(const char * path)
 	} 
 	now = get_free_inode();
 	now -> isDirectories = 1;
-	now -> d_hash = createHashMap(NULL, NULL);		// 如果是目录，则需要初始化该目录的d_hash
+	now -> d_hash = createHashMap(NULL, NULL, -1);		// 如果是目录，则需要初始化该目录的d_hash
 	strcpy(now->filename,filename);
 	pthread_mutex_lock(&father->file_lock);
 

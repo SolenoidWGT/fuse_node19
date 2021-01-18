@@ -43,32 +43,28 @@ int main(int argc, char **argv) {
 
 
 
-    fp= open("/home/gtwang/FUSE/temp/fuse_test_20M.txt", O_APPEND| O_RDWR|O_CREAT, S_IRWXU);
+    fp= open("/home/gtwang/FUSE/fuse_test_10M.txt", O_APPEND| O_RDWR|O_CREAT, S_IRWXU);
     if(fp ==-1 ){
         printf("Open file fail! %s\n", strerror(errno));
     }
 
-
-
     // 测试read时间
     clock_gettime(CLOCK_MONOTONIC, &start_test);
-    //for(i=0; i<52; i++){
+    for(i=0; i<52; i++){
         re =  read(fp, test_file , BANK_SIZE);
         if(re == -1){
             printf("write file fail %s!\n", strerror(errno));
             free(test_file);
-            // break;
+            break;
         }
          n += re;
-    //}
+    }
 
     clock_gettime(CLOCK_MONOTONIC, &end_test);
     total_write_time = ((end_test.tv_sec * 1000000000) + end_test.tv_nsec) -
             ((start_test.tv_sec * 1000000000) + start_test.tv_nsec); 
-    printf("Total read time is %lf us, read size is %d \n", (double)(total_write_time/1000), n);
 
-
-
+    printf("Total read time is %lf ms, read size is %d \n", (double)(total_write_time/1000000), n);
 
     // // 测试内存拷贝时间
     // clock_gettime(CLOCK_MONOTONIC, &start_test);
@@ -77,14 +73,6 @@ int main(int argc, char **argv) {
     // total_write_time = ((end_test.tv_sec * 1000000000) + end_test.tv_nsec) -
     //         ((start_test.tv_sec * 1000000000) + start_test.tv_nsec); 
     // printf("memcpy time is %lf us\n",  (double)(total_write_time/1000));
-
-
-
-    int chunk_sum_2 = 0;
-    for(i=0; i<BANK_SIZE; i++){
-        chunk_sum_2 += (test_file[i] - '0');
-    }
-    printf("chunk_sum_2 is %d \n!", chunk_sum_2);
 
     if( (n = close(fp)) == -1){
         printf("CLose file ERROR!, %s\n ", strerror(errno));

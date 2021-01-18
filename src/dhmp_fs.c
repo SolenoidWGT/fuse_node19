@@ -60,8 +60,9 @@ pthread_mutex_t _SSD_LOCK;
 	int use_bank_len = 0;
 	rw_task * fuse_journal_list;		// 日志缓冲
 	cache_DRAM * cache_head;			// cahce链表
-	cache_DRAM * anon_cache_head;		// 匿名cahce链表，用于减少在发生cache miss时的malloc操作
-
+	// HashMap * cache_hash;
+	// cache_DRAM * anon_cache_head;		// 匿名cahce链表，用于减少在发生cache miss时的malloc操作
+	dhmp_fs_cahce* cache_hash[CACHE_SIZE];
 	int all_while_true_thread_kill;		// 当主进程结束的时候设置为true
 	
 #endif
@@ -102,7 +103,11 @@ static void*  dhmp_init(struct fuse_conn_info *conn, struct fuse_config *cfg)
 		FUSE_INFO_LOG("SIZE_THIRD_DIRECT_END :%lu, %lf G",SIZE_THIRD_DIRECT_END, (double) SIZE_THIRD_DIRECT_END/ (1024*1024*1024));
 
 
+
+
 #if DHMP_ON
+		FUSE_INFO_LOG("CACHE_SIZE is %d", CACHE_SIZE);
+		FUSE_INFO_LOG("BANK_NUM is %d", BANK_NUM);
 		recovery_in_use  = false;
 		alive_context= malloc(CHUNK_SIZE);
 		memset(alive_context, 0, CHUNK_SIZE);
@@ -156,12 +161,14 @@ static void*  dhmp_init(struct fuse_conn_info *conn, struct fuse_config *cfg)
 			for(init_bank_i = 0; init_bank_i < BANK_NUM; init_bank_i++){
 				fuse_sList[server_i]->bank[init_bank_i] = dhmp_malloc(BANK_SIZE, server_i);
 			}
-			// 为DRAM_bank分配内存
-			for(init_bank_i = 0;init_bank_i < BANK_NUM;init_bank_i++)
-				dram_bank[init_bank_i] = malloc(BANK_SIZE);
 
-			//FUSE_INFO_LOG("DHMP server %d malloc memory SUCCESS", server_i);
+			// // 为DRAM_bank分配内存，测试极限性能时使用
+			// for(init_bank_i = 0;init_bank_i < BANK_NUM;init_bank_i++)
+			// 	dram_bank[init_bank_i] = malloc(BANK_SIZE);
+
+			FUSE_INFO_LOG("DHMP server %d malloc memory SUCCESS", server_i);
 		}
+		FUSE_INFO_LOG("Remote server has start SUCCESS");
 
 		// 开启写脏页的线程
 		// all_while_true_thread_kill = 0;			// 没什么鸟用，fuse启动后你的main函数就结束了
@@ -170,11 +177,18 @@ static void*  dhmp_init(struct fuse_conn_info *conn, struct fuse_config *cfg)
 
 		// 初始化cache链表
 		// 先预存前20个bank
+
+
+
+
+// 注释到启动cache功能
+#ifdef CACHE_ON
 		pthread_rwlock_init(&cache_lock, NULL);			// 读写锁不光要初始化，还需要在不再使用后释放，但是在文件系统里面就算了
 
 		cache_head = (cache_DRAM*) malloc(sizeof(cache_DRAM));
 		INIT_LIST_HEAD(&cache_head->list);
 		int i=0;
+		
 		for(; i< CACHE_SIZE; i++){
 			cache_DRAM *cache = (cache_DRAM*) malloc(sizeof(cache_DRAM));
 			cache->data = malloc(BANK_SIZE);
@@ -182,12 +196,18 @@ static void*  dhmp_init(struct fuse_conn_info *conn, struct fuse_config *cfg)
 			cache->bank_Id = i;
 			pthread_mutex_init(&cache->rewrite_lock, NULL);
 			list_add_tail(&cache->list, &cache_head->list);
+			cache_hash[i] = (dhmp_fs_cahce*) malloc(sizeof(dhmp_fs_cahce));
+			cache_hash[i]->bank_id = i;
+			cache_hash[i]->cache_ptr = cache;
 		}
 		FUSE_INFO_LOG("Init_cache_DRAM  SUCCESS");
 
+#endif
+		
+
 #elif SSD_TEST 
 		// 初始化SSD磁盘
-		_SSD = open("/home/gtwang/FUSE/FUSE_SSD.txt",  O_RDWR|O_CREAT, S_IRWXU);
+		_SSD = open("/home/gtwang/FUSE/FUSE_SSD.txt",  O_RDWR|O_CREAT|O_DIRECT, S_IRWXU);	//O_DIRECT
 		if(_SSD ==-1 ){
 			FUSE_ERROR_LOG("Open file fail! %s\n", strerror(errno));
 		}
@@ -213,7 +233,7 @@ static void*  dhmp_init(struct fuse_conn_info *conn, struct fuse_config *cfg)
 	memset(bitmap,0,sizeof(bitmap));        // 初始化所有的chunk为可用状态
 
 
-	root -> d_hash = createHashMap(NULL, NULL);		// 初始化根目录的d_hash
+	root -> d_hash = createHashMap(NULL, NULL, -1);		// 初始化根目录的d_hash
 
 	// INIT_LIST_HEAD(&root->d_son);					// 父节点的son指向是儿子的头节点		
 
@@ -234,6 +254,8 @@ static void*  dhmp_init(struct fuse_conn_info *conn, struct fuse_config *cfg)
 	FUSE_INFO_LOG("init_inode_slab SUCCESS");
 
 	size_t size = BANK_SIZE;
+
+
 
 
 
@@ -348,6 +370,15 @@ int main(int argc, char *argv[])
 {
 	printf("fuck fuse\n");
 	// 用户态程序调用fuse_main() （lib/helper.c）
+	if(CHUNK_NUM % 2 !=0 || CACHE_SIZE %2 !=0){
+		printf("CHUNK_NUM or CACHE_SIZE is not power of two!, exit!\n");
+		return 0;
+	}
+#ifdef DHMP_ON
+	if(CHUNK_SIZE != BANK_SIZE){
+		printf("WARNING: In DHMP on，CHUNK_SIZE != BANK_SIZE\n");
+	}
+#endif
 	int ret = fuse_main(argc, argv, &dhmp_fs_oper, NULL);
 	printf("Bye!\n");
 

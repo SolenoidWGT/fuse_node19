@@ -6,6 +6,7 @@
 
 #include "../include/dhmp_fs_logs.h"
 #define DEBUG
+#define WGT
 
 #define FUSE_LOG_TIME_FMT "%04d/%02d/%02d-%02d:%02d:%02d.%05ld"
 enum fuse_dhmp_log_level fuse_global_log_level=FUSE_DHMP_LOG_LEVEL_DEBUG;
@@ -51,7 +52,14 @@ void FUSE_dhmp_log_impl(const char * file, unsigned line, const char * func, uns
 	localtime_r(&tt_now,&tm_now);
 
 
-	FILE * fuse_log_fp = fopen("/home/gtwang/FUSE/fuse_logs.txt", "a+");
+
+
+#ifdef WGT
+FILE * fuse_log_fp = fopen("/home/gtwang/FUSE/gtwang_fuse_logs.txt", "a+");
+#else
+FILE * fuse_log_fp = fopen("/home/gtwang/FUSE/fuse_logs.txt", "a+");
+#endif
+	
 	fprintf(fuse_log_fp,
 		"[" FUSE_LOG_TIME_FMT "] %-28s [%-5s] - %s\n",
 		tm_now.tm_year + 1900, tm_now.tm_mon + 1, tm_now.tm_mday,

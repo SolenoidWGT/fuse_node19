@@ -10,7 +10,7 @@ void * defaultGet(HashMap * hashMap, void * key) ;
 int defaultExists(HashMap * hashMap, void * key) ;
 void* defaultRemove(HashMap* hashMap, void* key) ;
 void defaultClear(HashMap *hashMap);
-HashMap* createHashMap(HashCode hashCode, Equal equal) ;
+HashMap* createHashMap(HashCode hashCode, Equal equal , int _listSize) ;
 void resetHashMap(HashMap* hashMap, int new_listSize);
 
 int defaultHashCode(HashMap* hashMap, void* key) {
@@ -125,7 +125,7 @@ void defaultPut(HashMap* hashMap, void* key, void* value) {
 
 
 
-	if (hashMap->size >= hashMap->listSize) {
+	if (hashMap->size >= hashMap->listSize && hashMap->changeSize) {
 
 		// 内存扩充至原来的两倍
 		// *注: 扩充时考虑的是当前存储元素数量与存储空间的大小关系，而不是存储空间是否已经存满，
@@ -208,7 +208,7 @@ void* defaultRemove(HashMap* hashMap, void* key) {
 		};
 	}
 	// 如果空间占用不足一半，则释放多余内存
-	if (result && hashMap->size < hashMap->listSize / 2) {
+	if (result && hashMap->size < hashMap->listSize / 2 && hashMap->changeSize) {
 		resetHashMap(hashMap, hashMap->listSize / 2);
 	}
 	return entryKey;
@@ -234,13 +234,13 @@ void defaultClear(HashMap *hashMap) {
 	hashMap->listSize = 0;
 }
 
-HashMap* createHashMap(HashCode hashCode, Equal equal) {
+HashMap* createHashMap(HashCode hashCode, Equal equal, int _listSize) {
 	HashMap *hashMap = (HashMap *) malloc (sizeof(HashMap));
 	if (hashMap == NULL) {
 		return NULL;
 	}
 	hashMap->size = 0;
-	hashMap->listSize = DEFAULT_MAP_SIZE;
+	hashMap->listSize = _listSize == -1 ? DEFAULT_MAP_SIZE : _listSize;
 	hashMap->hashCode = hashCode == NULL ? defaultHashCode : hashCode;
 	hashMap->equal = equal == NULL ? defaultEqual : equal;
 	hashMap->exists = defaultExists;
@@ -248,6 +248,7 @@ HashMap* createHashMap(HashCode hashCode, Equal equal) {
 	hashMap->put = defaultPut;
 	hashMap->remove = defaultRemove;
 	hashMap->clear = defaultClear;
+	hashMap->changeSize = 1;
 
 	// 起始分配8个内存空间，溢出时会自动扩充
 	hashMap->hash_list = (Entry *)malloc(sizeof(Entry) * hashMap->listSize);

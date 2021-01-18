@@ -178,13 +178,18 @@ context * get_free_context(){
 
 int getFreeChunk()
 {
-	int i =0;
-	for(;i < CHUNK_NUM; i++)
+	static int i =0;
+	int count = 0;
+	while(count< CHUNK_NUM)
 	{
-		if(bitmap[i] == 1)continue;
+		if(bitmap[i] == 1){
+			i = (i+1) & (CHUNK_NUM -1);
+			count++;
+			continue;
+		}	
 		break;
 	}
-	if(i == CHUNK_NUM){
+	if(count == CHUNK_NUM){
 		FUSE_ERROR_LOG("Error:no space for free chunk");
 		return -1;
 	}

@@ -13,36 +13,36 @@ static void dhmp_fs_write_to_cache(int bank_id, char * buf, size_t size, off_t o
 void* write_all_pthreads(void *aargs);
 void* write_pthread(void *aargs);
 
+
+//#define TIME
+//#define DDBUG
+
+
 // 一共只有100个块，遍历一遍是非常快的
 // cache_head读者，dirty_bitmap写者
 int try_visit_cache(int bank_id, char* local_buffer, size_t size, off_t offset, int type)
 {
 	// 先读缓存
-	cache_DRAM * cache = NULL;
+	
 	int count = 0;
+	int cache_key = bank_id & (CACHE_SIZE -1);
+
 	pthread_rwlock_rdlock(&cache_lock);		// 以读者模式加锁
-	list_for_each_entry(cache, &cache_head->list, list)
-    {	
-		count++;
-		// 缓存命中
-		if(cache->bank_Id == bank_id){
-			////FUSE_INFO_LOG("CACHE: %d cache is hit", cache->bank_Id);
-			if(type == 1){
-				memcpy(local_buffer, cache->data + offset, size);		// 读缓存
-			}else if(type == 2){
-				memcpy(cache->data + offset, local_buffer, size);		// 写缓存
-				// dirty_bitmap[bank_id] = 1;							// 将缓存标记为脏
-			}
-			// if(count >= 20){
-			// 	pthread_mutex_lock(&cache_lock);
-			// 	list_move(&cache->list, &cache_head->list);				// 将其移动到队列头
-			// 	pthread_mutex_unlock(&cache_lock);
-			// }
-			return 1;
+	// list_for_each_entry(cache, &cache_head->list, list)
+	if(cache_hash[cache_key]->bank_id != bank_id){	// catch!
+		pthread_rwlock_unlock(&cache_lock);
+		return 0;
+	}else{
+		cache_DRAM * cache = cache_hash[cache_key]->cache_ptr;
+		if(type == 1){
+			memcpy(local_buffer, cache->data + offset, size);		// 读缓存
+		}else if(type == 2){
+			memcpy(cache->data + offset, local_buffer, size);		// 写缓存
+			// dirty_bitmap[bank_id] = 1;							// 将缓存标记为脏
 		}
-    }
-	pthread_rwlock_unlock(&cache_lock);
-	return 0;
+		pthread_rwlock_unlock(&cache_lock);
+		return 1;
+	}
 }
 
 
@@ -53,10 +53,13 @@ typedef struct naive_rewrite_thread_arg
 
 
 // 新写者进程，这是唯一的写者进程
+static long int miss_count;
 void* naive_rewrite_thread(void * arg)
 {
 	// 开辟线程去回写和更新缓存
-	// FUSE_INFO_LOG("CACHE: Read %d cache is miss", bank_id);
+#ifdef DDBUG
+	FUSE_INFO_LOG("CACHE: miss count is %d", ++miss_count);
+#endif
 	pthread_detach(pthread_self());						// 父线程不等待子线程，子线程结束后释放自己的资源
 	cache_DRAM * cache = NULL;
 	int bank_id = ((naive_rewrite_thread_arg *) arg)->bank_id;
@@ -64,8 +67,13 @@ void* naive_rewrite_thread(void * arg)
 	pthread_rwlock_wrlock(&cache_lock);					// 以写者模式加锁
 	// 进入写者执行范围
 	cache = list_prev_entry(cache_head, list);			// 获得队尾节点，写者（读的目的是为了写，那么都算写者）
+
+	cache_hash[ cache->bank_Id & (CACHE_SIZE - 1)]->bank_id = bank_id;		// 将被逐出的bank在hash表的位置变化为新的bank
+
 	cache->bank_Id = bank_id;							// 将该块缓存身份变更
 	list_move(&cache->list, &cache_head->list);			// 将其移动到队列头，再将其放入到队列头之后，其不可能被其他的线程当作逐出的对象
+
+
 	// 回写
 	dhmp_fs_write_to_remote(cache->bank_Id, cache->data, BANK_SIZE, 0);
 	// 更新缓存
@@ -107,11 +115,13 @@ void cal_log_time(struct timespec * start, struct timespec *end, int times)
 #endif
 }
 
-// need_change
-//#define DDBUG
+
 int dhmp_fs_write(const char *path, const char *buf, size_t size,
 		     off_t offset, struct fuse_file_info *fi)
 {
+	static int total_write_count = 0;
+	// FUSE_INFO_LOG("Total write count is %d", ++total_write_count);
+
 	struct timespec start_test, end_test;
 	struct timespec strat_l3, end_l3;
     unsigned long long total_write_time = 0, total_fsync_time = 0; 
@@ -213,7 +223,8 @@ int dhmp_fs_write(const char *path, const char *buf, size_t size,
 
 int dhmp_fs_read(const char *path, char *buf, size_t size, off_t offset,
 		    struct fuse_file_info *fi)
-{
+{	static int total_read_count = 0;
+	FUSE_INFO_LOG("Total read count is %d", ++total_read_count);
 	struct timespec start_test, end_test;
 	struct timespec strat_l3, end_l3;
     unsigned long long total_write_time = 0, total_fsync_time = 0; 
@@ -306,8 +317,30 @@ int dhmp_fs_read(const char *path, char *buf, size_t size, off_t offset,
 
 
 
+// 将队尾cache逐出并回写
 
+void expel_cache_rewrite(int new_bank_id)
+{
+	cache_DRAM * cache = NULL;
+	static int cache_miss_time = 0;
 
+	FUSE_INFO_LOG("cache_miss_time is %d", ++cache_miss_time);
+
+	pthread_rwlock_wrlock(&cache_lock);	
+	if(cache_hash[ new_bank_id & (CACHE_SIZE - 1)]->bank_id == new_bank_id)
+	{
+		pthread_rwlock_unlock(&cache_lock);	
+		return;
+	}
+	cache = list_prev_entry(cache_head, list);									// 获得队尾节点，将其逐出，写者（读的目的是为了写，那么都算写者）
+	dhmp_fs_write_to_remote(cache->bank_Id, cache->data, BANK_SIZE, 0);			// 把逐出的cache回写
+	cache_hash[ cache->bank_Id & (CACHE_SIZE - 1)]->bank_id = new_bank_id;		// 将被逐出的bank在hash表的位置变化为新的bank
+	cache->bank_Id = new_bank_id;												// 将该块缓存身份变更
+	list_move(&cache->list, &cache_head->list);									// 将其移动到队列头，再将其放入到队列头之后，其不可能被其他的线程当作逐出的对象
+
+	dhmp_fs_read_from_remote(new_bank_id, cache->data, BANK_SIZE, 0);		
+	pthread_rwlock_unlock(&cache_lock);											// 此时就可以解锁了，fs只负责保证cache_list的并发安全性，不保证写入和读取的并发安全性
+}
 
 
 // 缓存不命中开销会非常大：一次写BANK_SIZE远端，一次读BANK_SIZE远端，一次memcpy
@@ -320,18 +353,22 @@ static void dhmp_fs_read_from_cache( int bank_id,  char * buf, size_t size, off_
 #if DHMP_ON
 
 	// 以读者身份读缓存，会被阻塞在写者进程上
+#ifdef CACHE_ON
 	if(try_visit_cache(bank_id, buf, size, offset, 1) == 1){
 		return;
+	}else{
+		expel_cache_rewrite(bank_id);
+		try_visit_cache(bank_id, buf, size, offset, 1);
 	}
+#else
+	dhmp_fs_read_from_remote(bank_id, buf, size, offset);
+#endif
+	// // 开辟写者进程去回写数据和更新缓存
+	// pthread_t thread;
+	// naive_rewrite_thread_arg * arg = (naive_rewrite_thread_arg *) malloc(sizeof(naive_rewrite_thread_arg));
+	// arg->bank_id = bank_id;
+	// pthread_create(&thread, NULL, naive_rewrite_thread, (void*)arg);
 
-	// 缓存没有命中，直接读远端到local buffer
-	dhmp_fs_read_from_remote(bank_id, buf, size, offset);	// 此时可以返回上层应用程序，这样可以减少一次内存拷贝操作
-
-	// 开辟写者进程去回写数据和更新缓存
-	pthread_t thread;
-	naive_rewrite_thread_arg * arg = (naive_rewrite_thread_arg *) malloc(sizeof(naive_rewrite_thread_arg));
-	arg->bank_id = bank_id;
-	pthread_create(&thread, NULL, naive_rewrite_thread, (void*)arg);
 
 #elif SSD_TEST
 	pthread_mutex_lock(&_SSD_LOCK);
@@ -353,18 +390,22 @@ void dhmp_fs_write_to_cache(int bank_id, char * buf, size_t size, off_t offset)
 		// CHUNK_NUM/BANK_NUM 平均一个bank里面有多少个chunk
 #if DHMP_ON
 	// 以读者身份读缓存，会被阻塞在写者进程上
+#ifdef CACHE_ON
 	if(try_visit_cache(bank_id, buf, size, offset, 2) == 1){
 		return;
+	}else{
+		expel_cache_rewrite(bank_id);
+		try_visit_cache(bank_id, buf, size, offset, 1);
 	}
-	// 缓存没有命中
-	// 直接写到远端磁盘上
+#else
 	dhmp_fs_write_to_remote(bank_id, buf, size, offset);
+#endif
+	// // 开辟写者进程去回写数据和更新缓存
+	// pthread_t thread;
+	// naive_rewrite_thread_arg * arg = (naive_rewrite_thread_arg *) malloc(sizeof(naive_rewrite_thread_arg));
+	// arg->bank_id = bank_id;
+	// pthread_create(&thread, NULL, naive_rewrite_thread, (void*)arg);
 
-	// 开辟写者进程去回写数据和更新缓存
-	pthread_t thread;
-	naive_rewrite_thread_arg * arg = (naive_rewrite_thread_arg *) malloc(sizeof(naive_rewrite_thread_arg));
-	arg->bank_id = bank_id;
-	pthread_create(&thread, NULL, naive_rewrite_thread, (void*)arg);
 
 	// 写日志缓冲区
 	// if(SERVERNUM <= 2){
