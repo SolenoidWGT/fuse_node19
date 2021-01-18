@@ -120,12 +120,11 @@ int dhmp_fs_write(const char *path, const char *buf, size_t size,
 		     off_t offset, struct fuse_file_info *fi)
 {
 	static int total_write_count = 0;
-	// FUSE_INFO_LOG("Total write count is %d", ++total_write_count);
-
 	struct timespec start_test, end_test;
 	struct timespec strat_l3, end_l3;
     unsigned long long total_write_time = 0, total_fsync_time = 0; 
 #ifdef DDBUG
+	FUSE_INFO_LOG("Total write count is %d", ++total_write_count);
 	FUSE_INFO_LOG("Write Begin! path %s, APP set write size is : %d,  now file offset is %d, wirte count is %d", path, size, offset, size/CHUNK_SIZE);
 #endif
 	int res;
@@ -224,11 +223,11 @@ int dhmp_fs_write(const char *path, const char *buf, size_t size,
 int dhmp_fs_read(const char *path, char *buf, size_t size, off_t offset,
 		    struct fuse_file_info *fi)
 {	static int total_read_count = 0;
-	FUSE_INFO_LOG("Total read count is %d", ++total_read_count);
 	struct timespec start_test, end_test;
 	struct timespec strat_l3, end_l3;
     unsigned long long total_write_time = 0, total_fsync_time = 0; 
 #ifdef DDBUG
+	FUSE_INFO_LOG("Total read count is %d", ++total_read_count);
 	FUSE_INFO_LOG("READ Begin! path %s, APP set read size is : %d,  now file offset is %d, loop count is %d", path, size, offset, size/CHUNK_SIZE);
 #endif
 	
