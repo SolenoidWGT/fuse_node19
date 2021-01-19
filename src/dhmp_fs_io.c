@@ -12,7 +12,7 @@ static void dhmp_fs_write_to_cache(int bank_id, char * buf, size_t size, off_t o
 #ifdef DHMP_ON
 void* write_all_pthreads(void *aargs);
 void* write_pthread(void *aargs);
-
+void * rewrite_dirty_cache();
 
 //#define TIME
 //#define DDBUG
@@ -21,30 +21,104 @@ void* write_pthread(void *aargs);
 // 一共只有100个块，遍历一遍是非常快的
 // cache_head读者，dirty_bitmap写者
 int try_visit_cache(int bank_id, char* local_buffer, size_t size, off_t offset, int type)
-{
+{ 
 	// 先读缓存
 	
 	int count = 0;
 	int cache_key = bank_id & (CACHE_SIZE -1);
 
-	pthread_rwlock_rdlock(&cache_lock);		// 以读者模式加锁
+	// pthread_rwlock_rdlock(&cache_lock);		// 以读者模式加锁
 	// list_for_each_entry(cache, &cache_head->list, list)
-	if(cache_hash[cache_key]->bank_id != bank_id){	// catch!
-		pthread_rwlock_unlock(&cache_lock);
+	if(cache_hash[cache_key]->bank_id != bank_id)
+	{	// miss!
+		// pthread_rwlock_unlock(&cache_lock);
 		return 0;
-	}else{
+	}else
+	{
 		cache_DRAM * cache = cache_hash[cache_key]->cache_ptr;
-		if(type == 1){
+		if(type == 1)
+		{
 			memcpy(local_buffer, cache->data + offset, size);		// 读缓存
-		}else if(type == 2){
-			memcpy(cache->data + offset, local_buffer, size);		// 写缓存
-			// dirty_bitmap[bank_id] = 1;							// 将缓存标记为脏
 		}
-		pthread_rwlock_unlock(&cache_lock);
+		else if(type == 2)
+		{
+			pthread_mutex_lock(&cache->rewrite_lock);
+			memcpy(cache->data + offset, local_buffer, size);		// 写缓存
+			cache->dirty = 1;										// 将缓存标记为脏
+			pthread_mutex_unlock(&cache->rewrite_lock);
+		}
+		// pthread_rwlock_unlock(&cache_lock);
 		return 1;
 	}
 }
 
+void * rewrite_dirty_cache()
+{
+	pthread_detach(pthread_self());
+	static int count = 0;
+	while(true)
+	{
+		usleep(1000);
+		int i=0;
+		cache_DRAM * cache = NULL;
+		// 遍历CACHE_SIZE链表
+		i = 0;
+		for(i =0 ; i<CACHE_SIZE; i++)
+		{
+			if(cache_hash[i]->cache_ptr != NULL)
+			{
+				cache = cache_hash[i]->cache_ptr;
+				if(cache->dirty == 1)
+				{
+					if(pthread_mutex_trylock(&cache->rewrite_lock) == 0){
+						dhmp_fs_write_to_remote(cache->bank_Id, cache->data, BANK_SIZE, 0);			// 把逐出的cache回写
+						cache->dirty = 0;
+						pthread_mutex_unlock(&cache->rewrite_lock);
+					}else{
+						continue;
+					}
+				}
+			}
+		}
+		// FUSE_INFO_LOG("rewrite_dirty_cache %d!", ++count);
+	}
+}
+
+// 将队尾cache逐出并回写
+void expel_cache_rewrite(int new_bank_id)
+{
+	cache_DRAM * cache = cache_hash[ new_bank_id & (CACHE_SIZE - 1)]->cache_ptr;
+	static int cache_miss_time = 0;
+#ifdef DDBUG
+	FUSE_INFO_LOG("cache_miss_time is %d", ++cache_miss_time);
+#endif
+	// pthread_rwlock_wrlock(&cache_lock);	
+	if(cache->bank_Id == new_bank_id)
+	{
+		// pthread_rwlock_unlock(&cache_lock);	
+		return;
+	}
+	
+	// cache = list_prev_entry(cache_head, list);									// 获得队尾节点，将其逐出，写者（读的目的是为了写，那么都算写者）
+	
+	pthread_mutex_lock(&cache->rewrite_lock);
+	if(cache->dirty == 1)
+	{
+		dhmp_fs_write_to_remote(cache->bank_Id, cache->data, BANK_SIZE, 0);		// 把逐出的cache回写
+	}
+
+	cache_hash[ cache->bank_Id & (CACHE_SIZE - 1)]->bank_id = new_bank_id;		// 将被逐出的bank在hash表的位置变化为新的bank
+	cache->bank_Id = new_bank_id;												// 将该块缓存身份变更
+	
+	// list_move(&cache->list, &cache_head->list);									// 将其移动到队列头，再将其放入到队列头之后，其不可能被其他的线程当作逐出的对象
+
+	dhmp_fs_read_from_remote(new_bank_id, cache->data, BANK_SIZE, 0);	
+
+	cache->dirty = 0;
+
+	pthread_mutex_unlock(&cache->rewrite_lock);	
+	// pthread_rwlock_unlock(&cache_lock);											// 此时就可以解锁了，fs只负责保证cache_list的并发安全性，不保证写入和读取的并发安全性
+}
 
 typedef struct naive_rewrite_thread_arg
 {
@@ -222,7 +296,8 @@ int dhmp_fs_write(const char *path, const char *buf, size_t size,
 
 int dhmp_fs_read(const char *path, char *buf, size_t size, off_t offset,
 		    struct fuse_file_info *fi)
-{	static int total_read_count = 0;
+{	
+	static int total_read_count = 0;
 	struct timespec start_test, end_test;
 	struct timespec strat_l3, end_l3;
     unsigned long long total_write_time = 0, total_fsync_time = 0; 
@@ -315,31 +390,6 @@ int dhmp_fs_read(const char *path, char *buf, size_t size, off_t offset,
 }
 
 
-
-// 将队尾cache逐出并回写
-
-void expel_cache_rewrite(int new_bank_id)
-{
-	cache_DRAM * cache = NULL;
-	static int cache_miss_time = 0;
-
-	FUSE_INFO_LOG("cache_miss_time is %d", ++cache_miss_time);
-
-	pthread_rwlock_wrlock(&cache_lock);	
-	if(cache_hash[ new_bank_id & (CACHE_SIZE - 1)]->bank_id == new_bank_id)
-	{
-		pthread_rwlock_unlock(&cache_lock);	
-		return;
-	}
-	cache = list_prev_entry(cache_head, list);									// 获得队尾节点，将其逐出，写者（读的目的是为了写，那么都算写者）
-	dhmp_fs_write_to_remote(cache->bank_Id, cache->data, BANK_SIZE, 0);			// 把逐出的cache回写
-	cache_hash[ cache->bank_Id & (CACHE_SIZE - 1)]->bank_id = new_bank_id;		// 将被逐出的bank在hash表的位置变化为新的bank
-	cache->bank_Id = new_bank_id;												// 将该块缓存身份变更
-	list_move(&cache->list, &cache_head->list);									// 将其移动到队列头，再将其放入到队列头之后，其不可能被其他的线程当作逐出的对象
-
-	dhmp_fs_read_from_remote(new_bank_id, cache->data, BANK_SIZE, 0);		
-	pthread_rwlock_unlock(&cache_lock);											// 此时就可以解锁了，fs只负责保证cache_list的并发安全性，不保证写入和读取的并发安全性
-}
 
 
 // 缓存不命中开销会非常大：一次写BANK_SIZE远端，一次读BANK_SIZE远端，一次memcpy
@@ -588,79 +638,65 @@ static void dhmp_fs_read_from_remote( int bank_id,  char * buf, size_t size, off
 	return;
 }
 
-/*
-
-// cache_head读者，dirty_bitmap写者
-int rewrite_dirty_cache()
-{
-	pthread_detach(pthread_self());
-	while(true){
-		sleep(1);
-		int i=0;
-		cache_DRAM * cache = NULL;
-		pthread_t threads[CACHE_SIZE];
-		writeThreadArgs2 * args_list[CACHE_SIZE];
-
-		for(; i< CACHE_SIZE; i++){
-			args_list[i] = NULL;
-		}
-
-		// 遍历CACHE_SIZE链表
-		i = 0;
-		pthread_mutex_lock(&cache_lock);	// 防止链表头的变化，所以需要对整个cache_list加锁
-		pthread_mutex_lock(&dirty_bitmap_lock);
-		list_for_each_entry(cache, &cache_head->list, list){
-			if(dirty_bitmap[i] == 1){
-				// pthread_mutex_lock(&cache->rewrite_lock);
-				// dhmp_fs_write_to_remote(cache->bank_Id, cache->data, BANK_SIZE, 0);
-				// dirty_bitmap[i] = 0;
-				// pthread_mutex_unlock(&cache->rewrite_lock);
-				writeThreadArgs2 * args = (writeThreadArgs2 *)malloc(sizeof(writeThreadArgs2));
-				args_list[i] = args;
-				args->bank_id = cache->bank_Id;
-				args->buf = cache->data;
-				args->offset = 0;
-				args->size = BANK_SIZE;
-				pthread_create(&threads[i], NULL, write_all_pthreads, (void*)args);
-			}
-			i++;
-		}
-		i = 0;
-		list_for_each_entry(cache, &cache_head->list, list){
-			if(args_list[i] != NULL){
-				pthread_join(&threads[i], NULL);
-
-				pthread_mutex_lock(&cache->rewrite_lock);
-				dirty_bitmap[args_list[i]->bank_id] = 0;		// 只有rewrite_dirty_cache才能将
-				pthread_mutex_unlock(&cache->rewrite_lock);
-			}
-			i++;
-		}
-		pthread_mutex_unlock(&dirty_bitmap_lock);
-		pthread_mutex_unlock(&cache_lock);	// 涉及到链表头的变化，所以需要对整个cache_list加锁
-	}
-}
 
 
-// cache_head写者，dirty_bitmap写者
-cache_DRAM * get_clean_cache(int new_bank_id)
-{
-	// 倒序遍历
-	cache_DRAM * cache = NULL;
-	int i = 0;
-	pthread_mutex_lock(&cache_lock);			// 涉及到链表头的变化，所以需要对整个cache_list加锁
-	list_for_each_entry_reverse(cache, &cache_head->list, list)
-	{
-		// 如果是干净的页面，可以直接覆盖，并将其标记为脏
-		if(dirty_bitmap[i] == 0){
-			dirty_bitmap[i] = 1;
-			cache->bank_Id = new_bank_id;
-			return cache;
-		}
-		i++;
-	}
-	pthread_mutex_unlock(&cache_lock);	// 涉及到链表头的变化，所以需要对整个cache_list加锁
-	return NULL;
-}
-*/
+		// pthread_t threads[CACHE_SIZE];
+		// writeThreadArgs2 * args_list[CACHE_SIZE];
+		// for(; i< CACHE_SIZE; i++){
+		// 	args_list[i] = NULL;
+		// }
+
+	// 	list_for_each_entry(cache, &cache_head->list, list){
+	// 		if(dirty_bitmap[i] == 1){
+	// 			// pthread_mutex_lock(&cache->rewrite_lock);
+	// 			// dhmp_fs_write_to_remote(cache->bank_Id, cache->data, BANK_SIZE, 0);
+	// 			// dirty_bitmap[i] = 0;
+	// 			// pthread_mutex_unlock(&cache->rewrite_lock);
+	// 			writeThreadArgs2 * args = (writeThreadArgs2 *)malloc(sizeof(writeThreadArgs2));
+	// 			args_list[i] = args;
+	// 			args->bank_id = cache->bank_Id;
+	// 			args->buf = cache->data;
+	// 			args->offset = 0;
+	// 			args->size = BANK_SIZE;
+	// 			pthread_create(&threads[i], NULL, write_all_pthreads, (void*)args);
+	// 		}
+	// 		i++;
+	// 	}
+	// 	i = 0;
+	// 	list_for_each_entry(cache, &cache_head->list, list){
+	// 		if(args_list[i] != NULL){
+	// 			pthread_join(&threads[i], NULL);
+
+	// 			pthread_mutex_lock(&cache->rewrite_lock);
+	// 			dirty_bitmap[args_list[i]->bank_id] = 0;		// 只有rewrite_dirty_cache才能将
+	// 			pthread_mutex_unlock(&cache->rewrite_lock);
+	// 		}
+	// 		i++;
+	// 	}
+	// 	pthread_mutex_unlock(&dirty_bitmap_lock);
+	// 	pthread_mutex_unlock(&cache_lock);	// 涉及到链表头的变化，所以需要对整个cache_list加锁
+	// }
+
+
+
+// // cache_head写者，dirty_bitmap写者
+// cache_DRAM * get_clean_cache(int new_bank_id)
+// {
+// 	// 倒序遍历
+// 	cache_DRAM * cache = NULL;
+// 	int i = 0;
+// 	pthread_mutex_lock(&cache_lock);			// 涉及到链表头的变化，所以需要对整个cache_list加锁
+// 	list_for_each_entry_reverse(cache, &cache_head->list, list)
+// 	{
+// 		// 如果是干净的页面，可以直接覆盖，并将其标记为脏
+// 		if(dirty_bitmap[i] == 0){
+// 			dirty_bitmap[i] = 1;
+// 			cache->bank_Id = new_bank_id;
+// 			return cache;
+// 		}
+// 		i++;
+// 	}
+// 	pthread_mutex_unlock(&cache_lock);	// 涉及到链表头的变化，所以需要对整个cache_list加锁
+// 	return NULL;
+// }
 #endif

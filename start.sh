@@ -6,6 +6,7 @@
 
 # mogodb拷贝
 # cp -rf mongodb/db temp/;
+sleep 20;
 
 # # spark拷贝任务
 # start_time=$(date +%s);
@@ -14,12 +15,12 @@
 # cost_time=$[ $end_time-$start_time ];
 # echo "NEW FUse time is $(($cost_time/60))min $(($cost_time%60))s";
 
-# # 写任务
-# start_time=$(date +%s);
-# cp -rf ./fuse_test_20M.txt ./temp/;
-# end_time=$(date +%s);
-# cost_time=$[ $end_time-$start_time ];
-# echo "NEW FUse time is $(($cost_time/60))min $(($cost_time%60))s";
+# 写任务
+start_time=$(date +%s);
+cp -rf ./fuse_test_10M.txt ./temp/;
+end_time=$(date +%s);
+cost_time=$[ $end_time-$start_time ];
+echo "NEW FUse time is $(($cost_time/60))min $(($cost_time%60))s";
 
 # # 读任务
 # start_time=$(date +%s);

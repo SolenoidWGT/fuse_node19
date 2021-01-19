@@ -1,6 +1,7 @@
 #ifndef DHMP_CONFIG_H
 #define DHMP_CONFIG_H
-
+// "/home/gtwang_exchange/config.xml"
+// "/home/gtwang/FUSE/config.xml"
 #define DHMP_CONFIG_FILE_NAME "/home/gtwang_exchange/config.xml"
 #define DHMP_ADDR_LEN 18
 #define DHMA_NIC_NAME_LEN 10

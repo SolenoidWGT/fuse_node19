@@ -48,14 +48,11 @@ pthread_mutex_t _SSD_LOCK;
 	pthread_mutex_t journal_mutex;			// 日志锁
 	pthread_mutex_t fuse_mutex;  			// 文件系统同步锁
 	pthread_mutex_t recovery;
-	pthread_rwlock_t cache_lock;			// 读写锁：用于cache_head的加锁（读者写者问题）
-	pthread_mutex_t dirty_bitmap_lock;		// dirty_bitmap_bank的锁
-	
+	pthread_rwlock_t cache_lock;			// 读写锁：用于cache_head的加锁（读者写者问题）	
 	pthread_t rewrite_dirty_cache_thread;	// 脏页回写进程
 
 	bool recovery_in_use;
 	void * dram_bank[BANK_NUM];      	// bank[init_bank_i] = dhmp_malloc(BANK_SIZE,0);
-	int dirty_bitmap[BANK_NUM];			// 标记bank是否为脏，如果为脏则会被rewrite_dirty_cache回写到磁盘中
 	int fuse_journal_len=0;				// 日志缓冲长度
 	int use_bank_len = 0;
 	rw_task * fuse_journal_list;		// 日志缓冲
@@ -111,9 +108,7 @@ static void*  dhmp_init(struct fuse_conn_info *conn, struct fuse_config *cfg)
 		recovery_in_use  = false;
 		alive_context= malloc(CHUNK_SIZE);
 		memset(alive_context, 0, CHUNK_SIZE);
-		memset(dirty_bitmap, 0, BANK_NUM);
-
-
+		
 		dhmp_client_init(BANK_SIZE, fuse_recover);
 		//FUSE_INFO_LOG("dhmp_client_init SUCESS!");
 		SERVERNUM = dhmp_get_trans_count();
@@ -170,10 +165,7 @@ static void*  dhmp_init(struct fuse_conn_info *conn, struct fuse_config *cfg)
 		}
 		FUSE_INFO_LOG("Remote server has start SUCCESS");
 
-		// 开启写脏页的线程
-		// all_while_true_thread_kill = 0;			// 没什么鸟用，fuse启动后你的main函数就结束了
 
-		// pthread_create(&rewrite_dirty_cache_thread, NULL, rewrite_dirty_cache, NULL);
 
 		// 初始化cache链表
 		// 先预存前20个bank
@@ -192,8 +184,9 @@ static void*  dhmp_init(struct fuse_conn_info *conn, struct fuse_config *cfg)
 		for(; i< CACHE_SIZE; i++){
 			cache_DRAM *cache = (cache_DRAM*) malloc(sizeof(cache_DRAM));
 			cache->data = malloc(BANK_SIZE);
-			memset(cache->data, 0, BANK_SIZE);
 			cache->bank_Id = i;
+			cache->dirty = 0;
+			memset(cache->data, 0, BANK_SIZE);
 			pthread_mutex_init(&cache->rewrite_lock, NULL);
 			list_add_tail(&cache->list, &cache_head->list);
 			cache_hash[i] = (dhmp_fs_cahce*) malloc(sizeof(dhmp_fs_cahce));
@@ -201,7 +194,10 @@ static void*  dhmp_init(struct fuse_conn_info *conn, struct fuse_config *cfg)
 			cache_hash[i]->cache_ptr = cache;
 		}
 		FUSE_INFO_LOG("Init_cache_DRAM  SUCCESS");
-
+		// 开启写脏页的线程
+		all_while_true_thread_kill = 0;			// 没什么鸟用，fuse启动后你的main函数就结束了
+		pthread_create(&rewrite_dirty_cache_thread, NULL, rewrite_dirty_cache, NULL);
+		FUSE_INFO_LOG("Pthread rewrite_dirty_cache_thread start!");
 #endif
 		
 
@@ -380,7 +376,7 @@ int main(int argc, char *argv[])
 	}
 #endif
 	int ret = fuse_main(argc, argv, &dhmp_fs_oper, NULL);
-	printf("Bye!\n");
+	FUSE_INFO_LOG("Bye!");
 
 	// #ifdef DHMP_ON
 	// int init_bank_i;

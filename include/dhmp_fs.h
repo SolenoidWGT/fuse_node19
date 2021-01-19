@@ -31,10 +31,9 @@
 #include <sys/xattr.h>
 #endif
 
-
 #define DHMP_ON 1
 // #define SSD_TEST 1
-// #define CACHE_ON 1
+#define CACHE_ON 1
 
 
 #include "../include/list.h"
@@ -55,6 +54,7 @@
 #define CHUNK_SIZE ((uint64_t)1024*4)           // 单个数据块的大小，16M
 #define CHUNK_NUM (TOTOL_SIZE/CHUNK_SIZE)           // 数据块的总数
 #define CACHE_SIZE_BYTE ((uint64_t)1024*1024*512)	
+#define CACHE_SIZE (CACHE_SIZE_BYTE / BANK_SIZE)
 
 #define FILE_NAME_LEN 512
 
@@ -177,9 +177,6 @@ struct attr {
 // 全局变量，非线程安全
 #ifdef DHMP_ON
 	#define SSERVERNUM (SERVERNUM+1)
-	#define CACHE_SIZE (CACHE_SIZE_BYTE / BANK_SIZE)
-
-	
 	typedef struct  rw_task
 	{
 		int bank_id;
@@ -220,6 +217,7 @@ struct attr {
 	{
 		void * data;
 		int bank_Id;
+		int dirty;
 		pthread_mutex_t rewrite_lock;	// 脏页回写锁
 		struct  list_head list;
 	}cache_DRAM;
@@ -281,11 +279,9 @@ extern pthread_mutex_t inode_slab_lock;
 	extern pthread_mutex_t fuse_mutex;  // 文件系统同步锁
 	extern pthread_mutex_t recovery;
 	extern pthread_rwlock_t cache_lock;
-	extern pthread_mutex_t dirty_bitmap_lock;	// dirty_bitmap_bank的锁
 
 	extern bool recovery_in_use;
 	extern void * dram_bank[BANK_NUM];      // bank[init_bank_i] = dhmp_malloc(BANK_SIZE,0);
-	extern int dirty_bitmap[BANK_NUM];	// 
 	extern int fuse_journal_len;	// 日志缓冲长度
 	extern int use_bank_len;
 	extern rw_task * fuse_journal_list;	// 日志缓冲
