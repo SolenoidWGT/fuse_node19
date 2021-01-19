@@ -5,8 +5,8 @@
 #include <stdarg.h>
 
 #include "../include/dhmp_fs_logs.h"
-#define DEBUG
-#define WGT
+//#define DEBUG
+//#define WGT
 
 #define FUSE_LOG_TIME_FMT "%04d/%02d/%02d-%02d:%02d:%02d.%05ld"
 enum fuse_dhmp_log_level fuse_global_log_level=FUSE_DHMP_LOG_LEVEL_DEBUG;
